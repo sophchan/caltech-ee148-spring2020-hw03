@@ -1,3 +1,23 @@
+'''
+Code for question 8
+-------------------
+All problems can be answered in this program. For each, set one of the parameters on
+line 200 and 201 as 'True' to run the evaluation. 
+
+(b) 9 examples where the classifier made a mistake
+    errors='True'
+
+(c) Display learned kernels from the first convolutional layer
+    kernels='True'
+
+(d) Generate a confusion matrix
+    matrix='True'
+
+(e) (i) Visualize the predictions of each of the test images
+    (ii) Choose 4 feature images and determine the 8 closest images by Euclidean distance
+    feature='True'
+'''
+
 import argparse
 import numpy as np
 import matplotlib.pyplot as plt
@@ -14,6 +34,12 @@ import os
 
 from main import Net 
 
+activation = {}
+def get_activation(name):
+    def hook(model, input, output):
+        activation[name] = output.detach()
+    return hook
+
 def test2(model, device, test_loader, errors=False, kernels=False, matrix=False, feature=False):
     '''
     errors: Visualize classification errors (HW #8b)
@@ -23,52 +49,101 @@ def test2(model, device, test_loader, errors=False, kernels=False, matrix=False,
     '''
     model.eval()    # Set the model to inference mode
     mat = np.zeros((10, 10))
-    features = np.array([])
+    aggregate_data = torch.Tensor([])
+    features = torch.Tensor([])
+    labels = torch.Tensor([])
     with torch.no_grad():   # For the inference step, gradient is not computed
         for data, target in test_loader:
             data, target = data.to(device), target.to(device)
-            output = model(data)
-            print(model.children())
-            FeaturesNet = nn.Sequential(*list(model.children())[:-1])
-            if errors: 
-                total = 0
-                for i, j in enumerate(target): 
-                    if j != np.argmax(output[i]):
-                        plt.imshow(data[i].view(28, 28))
-                        plt.axis('off')
-                        plt.show()
-                        total += 1
-                        if total > 9:
-                            return
-            elif kernels:
-                kernel_lst = model.conv1.weight.cpu().detach().clone()
-                fig = plt.figure()
-                fig.tight_layout()
-                plt.title('Conv1 Kernels')
-                plt.axis('off')
-                # 16 kernels 
-                for ker in range(16):
-                    ax = fig.add_subplot(4, 4, ker+1)
-                    ax.imshow(kernel_lst[ker][0])
-                    plt.axis('off')                
-                plt.show()
-                return 
-            elif matrix: 
-                for i, j in enumerate(target): 
-                    mat[j, np.argmax(output[i])] += 1
-            elif feature:
-                pass
+            if feature: 
+                model.fc2.register_forward_hook(get_activation('fc2'))
+                output = model(data)
+                aggregate_data = torch.cat((aggregate_data, data.to(device)))
+                features = torch.cat((features, activation['fc2']))
+                labels = torch.cat((labels, target))
+            else:
+                output = model(data)
+                if errors: 
+                    total = 0
+                    for i, j in enumerate(target): 
+                        if j != np.argmax(output[i]):
+                            plt.imshow(data[i].view(28, 28))
+                            plt.axis('off')
+                            plt.show()
+                            total += 1
+                            if total > 9:
+                                return
+                elif kernels:
+                    kernel_lst = model.conv1.weight.cpu().detach().clone()
+                    fig = plt.figure()
+                    fig.tight_layout()
+                    plt.title('Conv1 Kernels')
+                    plt.axis('off')
+                    # 16 kernels 
+                    for ker in range(16):
+                        ax = fig.add_subplot(4, 4, ker+1)
+                        ax.imshow(kernel_lst[ker][0])
+                        plt.axis('off')                
+                    plt.show()
+                    return 
+                elif matrix: 
+                    for i, j in enumerate(target): 
+                        mat[j, np.argmax(output[i])] += 1
         print(mat.astype(int)) if matrix else None
-        if features: 
+        if feature: 
             tsne = TSNE(n_components=2).fit_transform(features)
-
-            x_coors = tsne[:, 0]
-            y_coors = tsne[:, 1]
+            x = tsne[:, 0]
+            y = tsne[:, 1]
+            fig, ax = plt.subplots()
 
             for c in range(10):
-                pass
+                indices = []
+                for s, t in enumerate(labels): 
+                    indices.append(s) if c == t else None
+                x_c = x[indices]
+                y_c = y[indices]
+                ax.scatter(x_c, y_c)
+            plt.axis('off')
+            plt.title('2D Visualization of MNIST Set')
+            plt.legend(list(range(10)))
+            plt.show()
 
+            fig = plt.figure()
+            fig.tight_layout()
+            plt.axis('off')
+            plt.title('Most Similar Images by Euclidean Distance')
 
+            num = 4
+            indices = [[], [], [], []]
+            for f, vec1 in enumerate(features[0:num]):
+                remaining = torch.cat((features[0:f], features[f+1:]))
+                indices[f].append(f-1)
+                norms = torch.Tensor([])
+
+                for vec2 in remaining: 
+                    norms = torch.cat((norms, torch.cdist(vec1.view(1, 64), \
+                        vec2.view(1, 64))))
+
+                for i in range(8):
+                    new_norms = norms.clone()
+                    if len(indices[f]) != 0: 
+                        indices[f].sort(reverse=True)
+                        for taken in indices[f]: 
+                            new_norms = torch.cat((new_norms[0:taken], new_norms[taken+1:]))
+                
+                    min_norm = torch.min(new_norms)
+                    min_norm_idx = (norms == min_norm).nonzero(as_tuple=True)[0]
+                    indices[f].append(min_norm_idx)
+            
+            for s, ind in enumerate(indices): 
+                indices[s].sort()
+
+            for l, lst in enumerate(indices):
+                for k, img_num in enumerate(indices[l]):
+                    ax = fig.add_subplot(num, 9, l*9+k+1)
+                    ax.imshow(aggregate_data[img_num+1].view(28, 28))
+                    plt.axis('off')
+            plt.show()
         return 
 
 
@@ -124,75 +199,10 @@ def main():
 
         test_loader = torch.utils.data.DataLoader(
             test_dataset, batch_size=args.test_batch_size, shuffle=True, **kwargs)
-        test2(model, device, test_loader, feature=True)
+        test2(model, device, test_loader, errors=False, kernels=False, \
+            matrix=False, feature=False)
 
         return
-
-    # Pytorch has default MNIST dataloader which loads data at each iteration
-    train_dataset = datasets.MNIST('data', train=True, #download=True,
-                transform=transforms.Compose([       # Data preprocessing
-                    transforms.ToTensor(),          # Add data augmentation here
-                    transforms.RandomAffine(degrees=5, translate=(4/28, 4/28)),
-                    transforms.Normalize((0.1307,), (0.3081,))
-                ]))
-
-    # You can assign indices for training/validation or use a random subset for
-    # training by using SubsetRandomSampler. Right now the train and validation
-    # sets are built from the same indices - this is bad! Change it so that
-    # the training and validation sets are disjoint and have the correct relative sizes.
-
-    images = {}
-    count = [0]*10
-    for i in range(10):
-        images[i] = []
-
-    for index, img in enumerate(train_dataset):
-        images[int(img[1])].append(index)
-        count[int(img[1])] += 1
-    
-    np.random.seed(2021)
-    # For training w/ fractions of data, change the variable x to the fraction wanted
-    x = 1
-    val_count = np.array(count)*(.15+.85*(1-x))
-    val_count = val_count.astype(int)
-    subset_indices_valid = np.array([])
-    for j, k in enumerate(val_count):
-        subset_indices_valid = np.concatenate((subset_indices_valid, \
-            np.random.choice(images[j], size=k, replace=False)))
-    subset_indices_valid = subset_indices_valid.astype(int)
-    subset_indices_valid = np.ndarray.tolist(subset_indices_valid)
-    subset_indices_train = [l for l in range(len(train_dataset)) \
-         if (l not in subset_indices_valid)]
-
-    train_loader = torch.utils.data.DataLoader(
-        train_dataset, batch_size=args.batch_size,
-        sampler=SubsetRandomSampler(subset_indices_train)
-    )
-    val_loader = torch.utils.data.DataLoader(
-        train_dataset, batch_size=args.test_batch_size,
-        sampler=SubsetRandomSampler(subset_indices_valid)
-    )
-
-    # Load your model [fcNet, ConvNet, Net]
-    model = Net().to(device)
-
-    # Try different optimzers here [Adam, SGD, RMSprop]
-    optimizer = optim.Adadelta(model.parameters(), lr=args.lr)
-
-    # Set your learning rate scheduler
-    scheduler = StepLR(optimizer, step_size=args.step, gamma=args.gamma)
-
-    # Training loop
-    for epoch in range(1, args.epochs + 1):
-        train(args, model, device, train_loader, optimizer, epoch)
-        test(model, device, val_loader)
-        scheduler.step()    # learning rate scheduler
-
-        # You may optionally save your model at each epoch here
-
-    if args.save_model:
-        torch.save(model.state_dict(), "mnist_model.pt")
-
 
 if __name__ == '__main__':
     main()
