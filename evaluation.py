@@ -1,21 +1,21 @@
 '''
 Code for question 8
 -------------------
-All problems can be answered in this program. For each, set one of the parameters on
-line 200 and 201 as 'True' to run the evaluation. 
+Feed True as an argument for one of the four flags --error, --kernels, --matrix, or 
+--feature to output the figure(s) for the problems. 
 
 (b) 9 examples where the classifier made a mistake
-    errors='True'
+    --errors True
 
 (c) Display learned kernels from the first convolutional layer
-    kernels='True'
+    --kernels True
 
 (d) Generate a confusion matrix
-    matrix='True'
+    --matrix True
 
 (e) (i) Visualize the predictions of each of the test images
     (ii) Choose 4 feature images and determine the 8 closest images by Euclidean distance
-    feature='True'
+    --feature True
 '''
 
 import argparse
@@ -175,6 +175,17 @@ def main():
 
     parser.add_argument('--save-model', action='store_true', default=True,
                         help='For Saving the current Model')
+
+    parser.add_argument('--errors', action='store_true', default=False,
+                        help='display 9 classifier errors')
+    parser.add_argument('--kernels', action='store_true', default=False,
+                        help='display learned kernels from first convolutional layer')
+    parser.add_argument('--matrix', action='store_true', default=False,
+                        help='generate a confusion matrix')
+    parser.add_argument('--feature', action='store_true', default=False,
+                        help='(i) visualize test image predictions (ii) choose \
+                            4 feature images and corresponding 8 closest images by \
+                                Euclidean distance')
     args = parser.parse_args()
 
     torch.manual_seed(args.seed)
@@ -199,8 +210,8 @@ def main():
 
         test_loader = torch.utils.data.DataLoader(
             test_dataset, batch_size=args.test_batch_size, shuffle=True, **kwargs)
-        test2(model, device, test_loader, errors=False, kernels=False, \
-            matrix=False, feature=False)
+        test2(model, device, test_loader, errors=args.errors, kernels=args.kernels, \
+            matrix=args.matrix, feature=args.feature)
 
         return
 
